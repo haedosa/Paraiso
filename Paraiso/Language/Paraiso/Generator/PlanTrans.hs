@@ -1,5 +1,5 @@
-{-# LANGUAGE CPP, DeriveDataTypeable, ExistentialQuantification, 
-NoImplicitPrelude, OverloadedStrings, 
+{-# LANGUAGE CPP, DeriveDataTypeable, ExistentialQuantification,
+NoImplicitPrelude, OverloadedStrings,
 TupleSections #-}
 {-# OPTIONS -Wall #-}
 
@@ -38,6 +38,7 @@ import qualified Language.Paraiso.Optimization.Graph as Opt
 import           Language.Paraiso.Name
 import           Language.Paraiso.Prelude hiding (Boolean(..))
 import           NumericPrelude hiding ((++))
+import qualified Data.Typeable as Typeable
 
 -- the standard annotation type.
 type AnAn = Anot.Annotation
@@ -48,50 +49,50 @@ data Env v g = Env (Native.Setup v g) (Plan.Plan v g AnAn)
 
 -- translate the plan to Claris
 translate :: Opt.Ready v g => Native.Setup v g -> Plan.Plan v g AnAn -> C.Program
-translate setup plan = 
-  C.Program 
+translate setup plan =
+  C.Program
   { C.progName = name plan,
-    C.topLevel = 
-      stlHeaders ++ 
-      library env ++ 
+    C.topLevel =
+      stlHeaders ++
+      library env ++
       comments ++
-      subHelperFuncs ++ 
+      subHelperFuncs ++
       [ C.ClassDef $ C.Class (name plan) $
-        map fst storageVars ++ 
-        constructorDef ++ 
+        map fst storageVars ++
+        constructorDef ++
         accessorsForSize env ++
         accessorsForVars env ++
-        subMemberFuncs ++ memberFuncs 
+        subMemberFuncs ++ memberFuncs
       ]
   }
   where
     env = Env setup plan
-    comments = (:[]) $ C.Comment $ T.unlines [ 
+    comments = (:[]) $ C.Comment $ T.unlines [
       "",
       "lowerMargin = " ++ showT (Plan.lowerMargin plan),
       "upperMargin = " ++ showT (Plan.upperMargin plan)
       ]
 
-    constructorDef = 
+    constructorDef =
       (:[]) $
       C.MemberFunc C.Public True $
       (C.function  C.ConstructorType (name plan))
       { C.funcMemberInitializer = -- allocate memory for storage members
            concat $
-           flip map storageVars $ \(memb, stRef) -> 
+           flip map storageVars $ \(memb, stRef) ->
              case (memb, Realm.realm $ Plan.storageDynValue stRef) of
                (C.MemberVar _ var, Realm.Array)
                  -> [C.FuncCallUsr (name var) [C.FuncCallUsr (name (omFuncMemorySizeTotal env)) []]]
                _ -> []
       }
 
-    memberFuncs = 
-      V.toList $ 
-      V.imap (\idx ker -> makeKernelFunc env idx ker) $ 
+    memberFuncs =
+      V.toList $
+      V.imap (\idx ker -> makeKernelFunc env idx ker) $
       Plan.kernels plan
 
-    subHelperFuncs = concat $ V.toList $ V.map snd $ subKernelFuncs   
-    subMemberFuncs = concat $ V.toList $ V.map fst $ subKernelFuncs   
+    subHelperFuncs = concat $ V.toList $ V.map snd $ subKernelFuncs
+    subMemberFuncs = concat $ V.toList $ V.map fst $ subKernelFuncs
     subKernelFuncs = V.map (makeSubFunc env) $ Plan.subKernels plan
 
 
@@ -99,19 +100,19 @@ translate setup plan =
     include'' = C.Exclusive C.HeaderFile . C.StmtPrpr . C.PrprInclude C.Quotation2
     stlHeaders = case Native.language setup of
       Native.CPlusPlus -> map include ["algorithm", "cmath", "vector"]
-      Native.CUDA      -> map include ["thrust/device_vector.h", "thrust/host_vector.h", "thrust/functional.h", "thrust/extrema.h", "thrust/reduce.h"] ++ 
+      Native.CUDA      -> map include ["thrust/device_vector.h", "thrust/host_vector.h", "thrust/functional.h", "thrust/extrema.h", "thrust/reduce.h"] ++
                           map (include'' . T.pack . fst) commonLibraries
 
-    storageVars = 
+    storageVars =
       V.toList $
       V.map storageRefToMember $
       Plan.storages plan
-    storageRefToMember stRef =  
+    storageRefToMember stRef =
       (,stRef) $
-      C.MemberVar C.Private $ 
-      C.Var 
-        (mkCppType env $ Plan.storageType stRef) 
-        (name stRef) 
+      C.MemberVar C.Private $
+      C.Var
+        (mkCppType env $ Plan.storageType stRef)
+        (name stRef)
 
 -- | Generate member functions for accessing the static variables
 accessorsForVars :: Opt.Ready v g => Env v g -> [C.MemberDef]
@@ -119,44 +120,44 @@ accessorsForVars env@(Env setup plan) =
   map (C.MemberFunc C.Public True) $ do
     -- list monad
     stRef <- (V.toList $ Plan.storages plan)
-    
+
     -- we have accessors only for static values.
     Just na <- [accessorName stRef]
-    
+
     -- for all static values we have simple accessors that returns reference to it.
     let typeSimple = C.RefOf $ mkCppType env $ Plan.storageType stRef
     let bodySimple = [C.StmtReturn $ mkVarExpr $ nameText stRef]
     let argsSimple = []
-        
-    -- we also have elemental accessors, but only for Arrays.    
-    let typeElemMaybe = case Plan.storageDynValue stRef of 
-          DVal.DynValue Realm.Scalar _ -> []          
+
+    -- we also have elemental accessors, but only for Arrays.
+    let typeElemMaybe = case Plan.storageDynValue stRef of
+          DVal.DynValue Realm.Scalar _ -> []
           DVal.DynValue Realm.Array  c -> [C.RefOf $ C.UnitType c]
 
-    let argsElem = compose (\ax@(Axis i) -> 
+    let argsElem = compose (\ax@(Axis i) ->
                              C.Var (C.typeOf (Native.localSize setup ! ax))
                                    (mkName $ "i" ++ showT i))
         bodyElem = (:[]) $
                    C.StmtReturn $ C.ArrayAccess (mkVarExpr $ nameText stRef) $
                    productedArgs ! Axis 0
-        productedArgs = compose 
-          (\i -> 
-            if (Axis.next i == Axis 0) 
-            then (marginedArgs!i) 
+        productedArgs = compose
+          (\i ->
+            if (Axis.next i == Axis 0)
+            then (marginedArgs!i)
             else  (marginedArgs!i) +
                   (C.FuncCallUsr (name $ omFuncMemorySize env ! i) []) *
                                 (productedArgs!(Axis.next i)))
-        marginedArgs = compose (\i -> 
+        marginedArgs = compose (\i ->
                                   C.FuncCallUsr (name $ omFuncLowerMargin env ! i) [] +
                                   C.VarExpr (argsElem ! i))
-                   
-    let materials = (typeSimple, bodySimple, argsSimple) : fmap (,bodyElem,F.toList argsElem) typeElemMaybe
-        
-    (typ, bod, arg) <- materials
-    
-    return (C.function typ na){C.funcBody = bod, C.funcArgs = arg}    
 
-accessorName :: (Plan.StorageRef v g a) -> Maybe Name    
+    let materials = (typeSimple, bodySimple, argsSimple) : fmap (,bodyElem,F.toList argsElem) typeElemMaybe
+
+    (typ, bod, arg) <- materials
+
+    return (C.function typ na){C.funcBody = bod, C.funcArgs = arg}
+
+accessorName :: (Plan.StorageRef v g a) -> Maybe Name
 accessorName x = case Plan.storageIdx x of
     Plan.StaticRef i     -> Just $ name $ OM.staticValues (Plan.setup $ Plan.parent x) V.! i
     Plan.ManifestRef i j -> Nothing
@@ -168,18 +169,18 @@ accessorsForSize :: Opt.Ready v g => Env v g -> [C.MemberDef]
 accessorsForSize env =
   map (C.MemberFunc C.Public True) $
   ([omFuncLocalSizeTotal env, omFuncMemorySizeTotal env] ++) $
-  concat $ 
+  concat $
   map F.toList $
   [omFuncLocalSize env, omFuncMemorySize env, omFuncLowerMargin env, omFuncUpperMargin env]
 
-omFuncLocalSizeTotal :: Opt.Ready v g => Env v g -> C.Function                               
+omFuncLocalSizeTotal :: Opt.Ready v g => Env v g -> C.Function
 omFuncLocalSize      :: Opt.Ready v g => Env v g -> v C.Function
 omFuncLocalSizeTotal = fst $ makeOmSizeFuncSet "om_size" (\(Env setup _) -> Native.localSize setup)
 omFuncLocalSize      = snd $ makeOmSizeFuncSet "om_size" (\(Env setup _) -> Native.localSize setup)
 
-omFuncMemorySizeTotal :: Opt.Ready v g => Env v g -> C.Function                               
+omFuncMemorySizeTotal :: Opt.Ready v g => Env v g -> C.Function
 omFuncMemorySize      :: Opt.Ready v g => Env v g -> v C.Function
-omFuncMemorySizeTotal = fst $ makeOmSizeFuncSet "om_memory_size" 
+omFuncMemorySizeTotal = fst $ makeOmSizeFuncSet "om_memory_size"
                         (\(Env setup plan) -> Native.localSize setup + Plan.lowerMargin plan + Plan.upperMargin plan)
 omFuncMemorySize      = snd $ makeOmSizeFuncSet "om_memory_size"
                         (\(Env setup plan) -> Native.localSize setup + Plan.lowerMargin plan + Plan.upperMargin plan)
@@ -191,7 +192,7 @@ omFuncUpperMargin     = snd $ makeOmSizeFuncSet "om_upper_margin" (\(Env _ plan)
 
 
 
-makeOmSizeFuncSet :: Opt.Ready v g => 
+makeOmSizeFuncSet :: Opt.Ready v g =>
                         Text              -- ^ The header text
                      -> (Env v g -> v g)  -- ^ How to read the size from the environment
                      -> (Env v g -> C.Function, Env v g -> v C.Function)
@@ -203,19 +204,19 @@ makeOmSizeFuncSet header sizeVecReader = (prodFunc, elemFuncs)
       trivialFunc header $ product $ F.toList sizeVec
     elemFuncs = do
       sizeVec <- sizeVecReader
-      F.sequenceA $ compose (\i -> trivialFunc (header ++ "_" ++ showT (axisIndex i)) (sizeVec ! i)) 
+      F.sequenceA $ compose (\i -> trivialFunc (header ++ "_" ++ showT (axisIndex i)) (sizeVec ! i))
 
     trivialFunc str ret = do
       sizeVec <- sizeVecReader
       gt <- gaugeType
       return $ (C.function gt $ mkName $ str)
-          { C.funcBody = 
+          { C.funcBody =
             [ C.StmtReturn (C.toDyn ret)
             ]
           }
 
--- | Generate member functions for accessing 
-      
+-- | Generate member functions for accessing
+
 
 gaugeType :: Opt.Ready v g => Env v g -> C.TypeRep
 gaugeType env@(Env setup plan) = C.typeOf $ Native.localSize setup ! (Axis 0)
@@ -223,47 +224,47 @@ gaugeType env@(Env setup plan) = C.typeOf $ Native.localSize setup ! (Axis 0)
 
 -- Make Kernel Functions
 makeKernelFunc :: Opt.Ready v g => Env v g -> Int -> OM.Kernel v g AnAn -> C.MemberDef
-makeKernelFunc env@(Env setup plan) kerIdx ker = C.MemberFunc C.Public False $ 
- (C.function tVoid (name ker)) 
+makeKernelFunc env@(Env setup plan) kerIdx ker = C.MemberFunc C.Public False $
+ (C.function tVoid (name ker))
  { C.funcBody = kernelCalls ++ storeInsts
  }
  where
    graph = OM.dataflow ker
 
-   kernelCalls = 
+   kernelCalls =
      V.toList $
-     V.map (\subker -> callSubKer subker $ V.map findVar $ 
+     V.map (\subker -> callSubKer subker $ V.map findVar $
                        Plan.inputIdxs subker V.++ Plan.outputIdxs subker) $
      V.filter ((== kerIdx) . Plan.kernelIdx) $
      Plan.subKernels plan
-   callSubKer subker xs = 
+   callSubKer subker xs =
      C.StmtExpr $
      C.FuncCallUsr (name subker) (V.toList xs)
 
-   storeInsts = 
+   storeInsts =
      map swapStmt $
      concatMap (\(idx, nd) -> case nd of
-               OM.NInst (OM.Store (OM.StaticIdx statIdx))_ -> [(idx, statIdx)] 
+               OM.NInst (OM.Store (OM.StaticIdx statIdx))_ -> [(idx, statIdx)]
                _ -> []) $
      FGL.labNodes graph
 
-   swapStmt (idx, statIdx) = 
+   swapStmt (idx, statIdx) =
      let preIdx = head $ FGL.pre graph idx in
      case (filter ((Plan.StaticRef statIdx==) . Plan.storageIdx) $ V.toList $ Plan.storages plan,
            filter ((Plan.ManifestRef kerIdx preIdx==) . Plan.storageIdx) $ V.toList $ Plan.storages plan) of
-       ([stRef],[maRef]) -> 
+       ([stRef],[maRef]) ->
          C.StmtExpr $ C.Op2Infix "="
          (C.VarExpr $ C.Var (mkCppType env $ Plan.storageType stRef) (name stRef) )
          (C.VarExpr $ C.Var C.UnknownType (name maRef) )
-       _ -> error $ "mismatch in storage phase: " ++ show (idx, statIdx) 
-   findVar idx = 
-     let 
-       loadIdx = 
+       _ -> error $ "mismatch in storage phase: " ++ show (idx, statIdx)
+   findVar idx =
+     let
+       loadIdx =
          listToMaybe $
          concat $
-         map (\jdx -> 
+         map (\jdx ->
                case FGL.lab graph jdx of
-                 Just (OM.NInst (OM.Load (OM.StaticIdx statIdx))_)-> [Plan.StaticRef statIdx] 
+                 Just (OM.NInst (OM.Load (OM.StaticIdx statIdx))_)-> [Plan.StaticRef statIdx]
                  _                                                -> []) $
          FGL.pre graph idx
        match stIdx
@@ -271,104 +272,104 @@ makeKernelFunc env@(Env setup plan) kerIdx ker = C.MemberFunc C.Public False $
          | Just stIdx == loadIdx                = True
          | otherwise                            = False
        stRef = V.head $ V.filter ( match . Plan.storageIdx ) $ Plan.storages plan
-     in C.VarExpr $ C.Var 
-        (mkCppType env $ Plan.storageType stRef) 
-        (name stRef) 
+     in C.VarExpr $ C.Var
+        (mkCppType env $ Plan.storageType stRef)
+        (name stRef)
 
 
 -- | Create a subKernel: a member function that performs a portion of
 --   actual calculations. It may also generate some helper functions
 --   called from the subKernel body.
-makeSubFunc :: Opt.Ready v g 
-            => Env v g 
-            -> Plan.SubKernelRef v g AnAn 
+makeSubFunc :: Opt.Ready v g
+            => Env v g
+            -> Plan.SubKernelRef v g AnAn
             -> ([C.MemberDef], [C.Statement])
-makeSubFunc env@(Env setup plan) subker = 
+makeSubFunc env@(Env setup plan) subker =
   case Native.language setup of
     Native.CPlusPlus -> cppSolution
     Native.CUDA      -> cudaSolution
   where
-    rlm = Realm.realm subker 
-    
+    rlm = Realm.realm subker
+
     cudaHelperName = mkName $ nameText subker ++ "_inner"
-    
-    cudaBodys = 
-      if rlm == Realm.Scalar 
+
+    cudaBodys =
+      if rlm == Realm.Scalar
       then []
       else
         (:[]) $
         C.FuncDef $
-        (C.function 
-         (C.QualifiedType [C.CudaGlobal] tVoid) 
+        (C.function
+         (C.QualifiedType [C.CudaGlobal] tVoid)
          cudaHelperName)
-        { C.funcArgs = 
+        { C.funcArgs =
            makeRawSubArg env True  (Plan.labNodesIn subker) ++
            makeRawSubArg env False (Plan.labNodesOut subker),
-          C.funcBody = 
-          [ C.Comment $ T.unlines 
+          C.funcBody =
+          [ C.Comment $ T.unlines
             [ "",
               "lowerMargin = " ++ showT (Plan.lowerBoundary subker),
               "upperMargin = " ++ showT (Plan.upperBoundary subker)
             ]
           ] ++ loopMaker env rlm subker
         }
-    
+
     (gridDim, blockDim) = Native.cudaGridSize setup
-    
-    cudaSolution = 
+
+    cudaSolution =
       (,cudaBodys) $
       (:[]) $
-      C.MemberFunc C.Public False $ 
+      C.MemberFunc C.Public False $
       (C.function tVoid (name subker))
-      { C.funcArgs = 
+      { C.funcArgs =
          makeSubArg env True (Plan.labNodesIn subker) ++
          makeSubArg env False (Plan.labNodesOut subker),
-        C.funcBody = 
-          if rlm == Realm.Scalar 
+        C.funcBody =
+          if rlm == Realm.Scalar
           then loopMaker env rlm subker
           else
-            [ C.Comment $ T.unlines 
+            [ C.Comment $ T.unlines
               [ "",
                 "lowerMargin = " ++ showT (Plan.lowerBoundary subker),
                 "upperMargin = " ++ showT (Plan.upperBoundary subker)
               ],
               C.RawStatement "{static bool fst = false;",
-              C.StmtExpr $ C.FuncCallStd "if (fst) cudaFuncSetCacheConfig" 
+              C.StmtExpr $ C.FuncCallStd "if (fst) cudaFuncSetCacheConfig"
                  [mkVarExpr $ nameText cudaHelperName, mkVarExpr "cudaFuncCachePreferL1"],
               C.RawStatement "fst = true;}",
               C.StmtExpr $ C.CudaFuncCallUsr cudaHelperName (C.toDyn gridDim) (C.toDyn blockDim) $
-              map takeRaw $ 
+              map takeRaw $
               (V.toList $ Plan.labNodesIn subker) ++ (V.toList $ Plan.labNodesOut subker)
-            ] 
+            ]
       }
 
-    takeRaw (idx, nd)= 
+    takeRaw (idx, nd)=
       case nd of
-        OM.NValue typ _ -> 
+        OM.NValue typ _ ->
           extractor typ $
           C.VarExpr $
           C.Var (mkCppType env typ) (nodeNameUniversal idx)
-        _ -> error "NValue expected" 
+        _ -> error "NValue expected"
 
     extractor typ = case Realm.realm typ of
-      Realm.Array ->           
-        flip C.MemberAccess (C.FuncCallStd "raw" []) 
+      Realm.Array ->
+        flip C.MemberAccess (C.FuncCallStd "raw" [])
       Realm.Scalar ->
         id
 
-    cppSolution = 
+    cppSolution =
       (,[]) $
       (:[]) $
-      C.MemberFunc C.Public False $ 
+      C.MemberFunc C.Public False $
       (C.function tVoid (name subker))
-      { C.funcArgs = 
+      { C.funcArgs =
          makeSubArg env True (Plan.labNodesIn subker) ++
          makeSubArg env False (Plan.labNodesOut subker),
-        C.funcBody = 
-          if rlm == Realm.Scalar 
+        C.funcBody =
+          if rlm == Realm.Scalar
           then loopMaker env rlm subker
           else
-            [ C.Comment $ T.unlines 
+            [ C.Comment $ T.unlines
               [ "",
                 "lowerMargin = " ++ showT (Plan.lowerBoundary subker),
                 "upperMargin = " ++ showT (Plan.upperBoundary subker)
@@ -376,8 +377,8 @@ makeSubFunc env@(Env setup plan) subker =
             ] ++ loopMaker env rlm subker
       }
 
-    
-    
+
+
 -- | make a subroutine argument list.
 makeSubArg :: Opt.Ready v g => Env v g -> Bool -> V.Vector (FGL.LNode (OM.Node v g AnAn)) -> [C.Var]
 makeSubArg env isConst lnodes =
@@ -391,10 +392,10 @@ makeSubArg env isConst lnodes =
 -- | make a subroutine argument list, using raw pointers.
 makeRawSubArg :: Opt.Ready v g => Env v g -> Bool -> V.Vector (FGL.LNode (OM.Node v g AnAn)) -> [C.Var]
 makeRawSubArg env isConst lnodes =
-  let f = (if isConst then C.Const else id) 
+  let f = (if isConst then C.Const else id)
   in
   map (\(idx,nd)-> case nd of
-          OM.NValue typ _ -> 
+          OM.NValue typ _ ->
             C.Var (f $ mkCudaRawType env typ) (nodeNameUniversal idx)
           _ -> error "NValue expected" ) $
   V.toList lnodes
@@ -407,8 +408,8 @@ loopMaker :: Opt.Ready v g => Env v g -> Realm.Realm -> Plan.SubKernelRef v g An
 loopMaker env@(Env setup plan) realm subker = case realm of
   Realm.Array ->
     pragma ++
-    [ C.StmtFor 
-      (C.VarDefSub loopCounter loopBegin) 
+    [ C.StmtFor
+      (C.VarDefSub loopCounter loopBegin)
       (C.Op2Infix "<"  (C.VarExpr loopCounter) loopEnd)
       (C.Op2Infix "+=" (C.VarExpr loopCounter) loopStride) $
       [C.VarDefSub addrCounter codecAddr] ++
@@ -417,16 +418,16 @@ loopMaker env@(Env setup plan) realm subker = case realm of
   Realm.Scalar -> loopContent
 
   where
-    pragma = 
-      if Native.language setup == Native.CPlusPlus 
+    pragma =
+      if Native.language setup == Native.CPlusPlus
       then [C.StmtPrpr $ C.PrprPragma "omp parallel for"]
       else []
     (loopBegin, loopEnd, loopStride) = case Native.language setup of
       Native.CPlusPlus -> (intImm 0, C.toDyn (product boundarySize), intImm 1)
-      Native.CUDA -> (loopBeginCuda, C.toDyn (product boundarySize), loopStrideCuda)      
+      Native.CUDA -> (loopBeginCuda, C.toDyn (product boundarySize), loopStrideCuda)
     loopBeginCuda = mkVarExpr "blockIdx.x * blockDim.x + threadIdx.x"
-    loopStrideCuda   = mkVarExpr "blockDim.x * gridDim.x"    
-    
+    loopStrideCuda   = mkVarExpr "blockDim.x * gridDim.x"
+
     loopCounter = C.Var tSizet (mkName "i")
     -- the orthotope for entire input
     memorySize   = F.toList $ Native.localSize setup + Plan.lowerMargin plan + Plan.upperMargin plan
@@ -437,17 +438,17 @@ loopMaker env@(Env setup plan) realm subker = case realm of
         Boundary.Open   -> Plan.lowerBoundary subker ! ax + Plan.upperBoundary subker ! ax
         Boundary.Cyclic -> Additive.zero)
 
-    codecDiv = 
-      [ if idx == 0 then (C.VarExpr loopCounter) else (C.VarExpr loopCounter) / (C.toDyn $ product $ take idx boundarySize) 
+    codecDiv =
+      [ if idx == 0 then (C.VarExpr loopCounter) else (C.VarExpr loopCounter) / (C.toDyn $ product $ take idx boundarySize)
       | idx <- [0..length boundarySize-1]]
-    codecMod = 
+    codecMod =
       [ if idx == length codecDiv-1 then x else x `mod`  (C.toDyn $ boundarySize !! idx)
       | (idx, x) <- zip [0..] codecDiv]
-    codecModAdd = 
+    codecModAdd =
       [ x + (C.toDyn $ Plan.lowerMargin plan ! (Axis idx))
       | (idx, x) <- zip [0..] codecMod]
-    codecAddr = 
-      if memorySize == boundarySize 
+    codecAddr =
+      if memorySize == boundarySize
       then C.VarExpr loopCounter
       else foldl1 (+)
            [ x * (C.toDyn $ product $ take idx  memorySize)
@@ -455,7 +456,7 @@ loopMaker env@(Env setup plan) realm subker = case realm of
     codecLoadIndex cursor =
       [ let
            bnd = Native.boundary setup
-           n      = C.toDyn $ memorySize !! idx 
+           n      = C.toDyn $ memorySize !! idx
            protector x'
              | bnd ! Axis idx == Boundary.Open = x'
              | otherwise = (x'+n) `mod` n
@@ -465,9 +466,9 @@ loopMaker env@(Env setup plan) realm subker = case realm of
       [ C.toDyn  (Native.localSize setup ! (Axis idx) )
       | (idx, _) <- zip [0..] codecMod]
 
-    codecCursor cursor 
+    codecCursor cursor
       | F.all (==Boundary.Open) bnd = easySum
-      | otherwise = normalSum                      
+      | otherwise = normalSum
         where
           bnd = Native.boundary setup
           easySum = C.VarExpr addrCounter + C.toDyn hardCodeShift
@@ -476,56 +477,56 @@ loopMaker env@(Env setup plan) realm subker = case realm of
             | (idx, _) <- zip [0..] memorySize]
           normalSum = foldl1 (+)
             [ let stride = C.toDyn $ product $ take idx  memorySize
-                  n      = C.toDyn $ memorySize !! idx 
+                  n      = C.toDyn $ memorySize !! idx
                   protector x'
                     | bnd ! Axis idx == Boundary.Open = x'
                     | otherwise = (x'+n) `mod` n
               in stride * protector (x + C.toDyn (cursor ! Axis idx))
-            | (idx, x) <- zip [0..] codecModAdd]  
+            | (idx, x) <- zip [0..] codecModAdd]
 
     addrCounter = C.Var tSizet (mkName "addr_origin")
 
-    loopContent = 
+    loopContent =
       concat $
       map buildExprs $
       filterVal $
       Set.toList allIdxSet
 
-    buildExprs (idx, val@(DVal.DynValue r c)) = 
+    buildExprs (idx, val@(DVal.DynValue r c)) =
       addSyncFunctions idx  $
-      map (\cursor -> 
+      map (\cursor ->
             lhs cursor
             (fst $ rhsAndRequest env idx cursor)
           ) $
       Set.toList $ lhsCursors V.! idx
       where
-        lhs cursor expr = 
+        lhs cursor expr =
           if Set.member idx outputIdxSet
           then C.StmtExpr $ flip (C.Op2Infix "=") expr $ case realm of
             Realm.Array ->
-              (C.ArrayAccess (C.VarExpr $ C.Var (C.UnitType c) (nodeNameUniversal idx)) (C.VarExpr addrCounter)) 
+              (C.ArrayAccess (C.VarExpr $ C.Var (C.UnitType c) (nodeNameUniversal idx)) (C.VarExpr addrCounter))
             Realm.Scalar ->
               C.VarExpr $ C.Var (C.UnitType c) (nodeNameUniversal idx)
-          else flip C.VarDefSub expr 
+          else flip C.VarDefSub expr
                (C.Var (C.UnitType c) $ nodeNameCursored env idx cursor)
 
-    addSyncFunctions :: FGL.Node -> [C.Statement] -> [C.Statement] 
-    addSyncFunctions idx = 
+    addSyncFunctions :: FGL.Node -> [C.Statement] -> [C.Statement]
+    addSyncFunctions idx =
       if realm /= Realm.Array ||
-         Native.language setup /= Native.CUDA 
+         Native.language setup /= Native.CUDA
          then id
          else foldl (.) id $ map adder anot
       where
         anot :: [Sync.Timing]
         anot =  (maybeToList $ FGL.lab graph idx) >>= (Anot.toList . OM.getA)
-          
-        adder :: Sync.Timing -> [C.Statement] -> [C.Statement]  
+
+        adder :: Sync.Timing -> [C.Statement] -> [C.Statement]
         adder Sync.Pre  = ([C.RawStatement "__syncthreads();"] ++ )
         adder Sync.Post = ( ++ [C.RawStatement "__syncthreads();"])
 
     -- lhsCursors :: (Opt.Ready v g) => V.Vector(Set.Set(v g))
     lhsCursors = V.generate idxSize f
-      where 
+      where
         f idx
           | not (Set.member idx allIdxSet) = Set.empty
           | Set.member idx outputIdxSet    = Set.singleton Additive.zero
@@ -536,15 +537,15 @@ loopMaker env@(Env setup plan) realm subker = case realm of
       Set.fromList $
       map snd $
       filter ((==idx) . fst) $
-      concat $ 
-      [snd $ rhsAndRequest env jdx cur| 
-       jdx <- Set.toList allIdxSet, 
+      concat $
+      [snd $ rhsAndRequest env jdx cur|
+       jdx <- Set.toList allIdxSet,
        jdx > idx,
        cur <- Set.toList $ lhsCursors V.! jdx
        ]
 
     -- rhsAndRequest :: (Opt.Ready v g) => Env v g -> FGL.Node -> v g -> (C.Expr,[(Int, v g)])
-    rhsAndRequest env' idx cursor = 
+    rhsAndRequest env' idx cursor =
       let (idxInst,inst) = case preInst idx of
             found:_ -> found
             _       -> error $ "right hand side is not inst:" ++ show idx
@@ -556,7 +557,7 @@ loopMaker env@(Env setup plan) realm subker = case realm of
         Realm.Array -> (C.ArrayAccess (creatVar idx) (codecCursor cursor), [])
         Realm.Scalar -> (creatVar idx, [])
       OM.Imm dyn      -> (C.Imm dyn, [])
-      OM.Arith op     -> (rhsArith env' op (map (nodeToRhs env' cursor) prepre),  
+      OM.Arith op     -> (rhsArith env' op (map (nodeToRhs env' cursor) prepre),
                       map (,cursor) prepre)
       OM.Shift v      -> case prepre of
         [pre1] -> (nodeToRhs env' cursor' pre1, [(pre1,cursor')]) where cursor' = cursor - v
@@ -579,19 +580,19 @@ loopMaker env@(Env setup plan) realm subker = case realm of
 
     filterVal  = concat . map (\(i,(xs,ys))-> map(i,)xs) . shiwake
     filterInst = concat . map (\(i,(xs,ys))-> map(i,)ys) . shiwake
-    shiwake indices = 
+    shiwake indices =
       map (\idx -> (idx,) $ case FGL.lab graph idx of
               Just (OM.NValue dval _) -> ([dval], [])
               Just (OM.NInst  inst _) -> ([], [inst])
               Nothing                 -> error $ "not in graph:" ++ show idx) $
-      indices 
+      indices
 
     idxSize = FGL.noNodes graph
 
     allIdxSet = Set.unions [inputIdxSet, outputIdxSet, calcIdxSet]
     inputIdxSet  = Set.fromList $ V.toList $ Plan.inputIdxs  subker
     outputIdxSet = Set.fromList $ V.toList $ Plan.outputIdxs subker
-    calcIdxSet = Set.fromList $ V.toList $ Plan.calcIdxs subker    
+    calcIdxSet = Set.fromList $ V.toList $ Plan.calcIdxs subker
 
     graph = Plan.dataflow subker
 
@@ -599,22 +600,22 @@ loopMaker env@(Env setup plan) realm subker = case realm of
 mkCppType :: Opt.Ready v g => Env v g -> DVal.DynValue -> C.TypeRep
 mkCppType env x = case x of
   DVal.DynValue Realm.Scalar c -> C.UnitType c
-  DVal.DynValue Realm.Array  c -> containerType env c          
+  DVal.DynValue Realm.Array  c -> containerType env c
 
-containerType :: Env v g -> TypeRep -> C.TypeRep
+containerType :: Env v g -> Typeable.TypeRep -> C.TypeRep
 containerType (Env setup _) c = case Native.language setup of
   Native.CPlusPlus -> C.TemplateType "std::vector" [C.UnitType c]
   Native.CUDA      -> C.TemplateType "thrust::thrust_vector" [C.UnitType c]
 
 
--- | convert a DynValue to raw-pointer type representation 
+-- | convert a DynValue to raw-pointer type representation
 --   for example used within CUDA kernel
 mkCudaRawType :: Opt.Ready v g => Env v g -> DVal.DynValue -> C.TypeRep
 mkCudaRawType env x = case x of
   DVal.DynValue Realm.Scalar c -> C.UnitType c
-  DVal.DynValue Realm.Array  c -> containerRawType env c          
+  DVal.DynValue Realm.Array  c -> containerRawType env c
 
-containerRawType :: Env v g -> TypeRep -> C.TypeRep
+containerRawType :: Env v g -> Typeable.TypeRep -> C.TypeRep
 containerRawType (Env setup _) c = case Native.language setup of
   Native.CPlusPlus -> C.PtrOf $ C.UnitType c
   Native.CUDA      -> C.PtrOf $ C.UnitType c
@@ -628,7 +629,7 @@ nodeNameUniversal idx = mkName $ "a" ++ showT idx
 
 
 nodeNameCursored :: Opt.Ready v g => Env v g ->  FGL.Node -> v g -> Name
-nodeNameCursored env idx cursor = mkName $ "a" ++ showT idx ++ "_" ++ 
+nodeNameCursored env idx cursor = mkName $ "a" ++ showT idx ++ "_" ++
                                 cursorToText env cursor
 
 cursorToText :: Opt.Ready v g => Env v g ->  v g -> T.Text
@@ -672,21 +673,21 @@ rhsArith (Env setup _) op argExpr = case (op, argExpr) of
   (Arith.Identity, [x]) ->  x
   (Arith.Add    , [x,y]) -> C.Op2Infix "+" x y
   (Arith.Sub    , [x,y]) -> C.Op2Infix "-" x y
-  (Arith.Neg    , [x]) -> C.Op1Prefix "-" x 
+  (Arith.Neg    , [x]) -> C.Op1Prefix "-" x
   (Arith.Mul    , [x,y]) -> C.Op2Infix "*" x y
   (Arith.Div    , [x,y]) -> C.Op2Infix "/" x y
-  (Arith.Mod    , [x,y]) -> C.Op2Infix "%" x y  
-  (Arith.Inv    , [x]) -> C.Op1Prefix "1/" x 
-  (Arith.Not    , [x]) -> C.Op1Prefix "!" x   
-  (Arith.And    , [x,y]) -> C.Op2Infix "&&" x y  
-  (Arith.Or     , [x,y]) -> C.Op2Infix "||" x y  
-  (Arith.EQ     , [x,y]) -> C.Op2Infix "==" x y  
-  (Arith.NE     , [x,y]) -> C.Op2Infix "!=" x y    
-  (Arith.LT     , [x,y]) -> C.Op2Infix "<" x y    
-  (Arith.LE     , [x,y]) -> C.Op2Infix "<=" x y    
-  (Arith.GT     , [x,y]) -> C.Op2Infix ">" x y    
-  (Arith.GE     , [x,y]) -> C.Op2Infix ">=" x y    
-  (Arith.Select , [x,y,z]) -> C.Op3Infix "?" ":" x y z   
+  (Arith.Mod    , [x,y]) -> C.Op2Infix "%" x y
+  (Arith.Inv    , [x]) -> C.Op1Prefix "1/" x
+  (Arith.Not    , [x]) -> C.Op1Prefix "!" x
+  (Arith.And    , [x,y]) -> C.Op2Infix "&&" x y
+  (Arith.Or     , [x,y]) -> C.Op2Infix "||" x y
+  (Arith.EQ     , [x,y]) -> C.Op2Infix "==" x y
+  (Arith.NE     , [x,y]) -> C.Op2Infix "!=" x y
+  (Arith.LT     , [x,y]) -> C.Op2Infix "<" x y
+  (Arith.LE     , [x,y]) -> C.Op2Infix "<=" x y
+  (Arith.GT     , [x,y]) -> C.Op2Infix ">" x y
+  (Arith.GE     , [x,y]) -> C.Op2Infix ">=" x y
+  (Arith.Select , [x,y,z]) -> C.Op3Infix "?" ":" x y z
   (Arith.Max    , [x,y])  -> C.FuncCallStd (nmsp "std::max" "max") [x,y]
   (Arith.Min    , [x,y])  -> C.FuncCallStd (nmsp "std::min" "min") [x,y]
   (Arith.Abs    , [x])  -> C.FuncCallStd "abs" [x]

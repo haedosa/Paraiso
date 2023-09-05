@@ -12,81 +12,82 @@ NoImplicitPrelude, OverloadedStrings, RankNTypes #-}
 -- generation and to make it simple. Claris is not designed for
 -- syntatic correctness, and it's possible to describe a Claris code
 -- that will cause a compile error in C++.
--- 
+--
 -- In Claris, variables, functions and classes are described in a
 -- unified manner that supports both the declaration and definition.
 -- From that information, the declarations and definitions are
 -- generated at appropriate places.
 
-module Language.Paraiso.Generator.Claris (      
+module Language.Paraiso.Generator.Claris (
   Program(..),
 
   FileType(..),
-  Statement(..), 
-  Preprocessing(..), 
+  Statement(..),
+  Preprocessing(..),
   TypeRep(..), typeOf, toDyn,
   Class(..), MemberDef(..), AccessModifier(..),
-  Function(..), function, 
-  Qualifier(..), 
-  Var(..), 
+  Function(..), function,
+  Qualifier(..),
+  Var(..),
   Expr(..), Parenthesis(..)
   ) where
 
 
 import qualified Algebra.Additive as Additive
 import qualified Algebra.Ring     as Ring
-import qualified Algebra.IntegralDomain as IntegralDomain 
+import qualified Algebra.IntegralDomain as IntegralDomain
 import qualified Algebra.Field    as Field
 import qualified Data.Dynamic     as Dyn
 import           Language.Paraiso.Name
 import           Language.Paraiso.Prelude
 import NumericPrelude
+import qualified Data.Typeable as Dyn
 
 -- | A Claris program.
-data Program 
-  = Program 
+data Program
+  = Program
     { progName :: Name, -- ^ the name of the program
       topLevel :: [Statement]  -- ^ the top-level elements of the program.
-    } 
+    }
   deriving (Show)
 instance Nameable Program where name = progName
 
 -- | C++ class descriptions are separated to two files
-data FileType 
+data FileType
   = HeaderFile
-  | SourceFile 
+  | SourceFile
   deriving (Eq, Show)
 
--- | C++ top-level statements 
-data Statement 
+-- | C++ top-level statements
+data Statement
   = StmtPrpr Preprocessing       -- ^ Preprosessor directive
   | UsingNamespace Name          -- ^ Name space declaration
   | ClassDef Class               -- ^ Class definition
   | FuncDef Function             -- ^ Function definition
-  | VarDef Var                   -- ^ variable definition as an expression 
+  | VarDef Var                   -- ^ variable definition as an expression
   | VarDefCon Var [Expr]         -- ^ define a variable and call a constructor
   | VarDefSub Var Expr           -- ^ define a variable and substitute a value
   | StmtExpr Expr                -- ^ Expression
   | StmtWhile Expr [Statement]   -- ^ While loop
-  | StmtFor Statement Expr Expr 
+  | StmtFor Statement Expr Expr
     [Statement]                  -- ^ For loop
-  | StmtReturn Expr              -- ^ return 
-  | Exclusive FileType Statement -- ^ A statement that is included exclusively 
+  | StmtReturn Expr              -- ^ return
+  | Exclusive FileType Statement -- ^ A statement that is included exclusively
                                  --   in either of the file type
-  
+
   | RawStatement Text            -- ^ text directly embedded into source code
   | Comment Text                 -- ^ a comment
-  deriving (Eq, Show)                    
+  deriving (Eq, Show)
 
--- | Preprocessor directive 
+-- | Preprocessor directive
 data Preprocessing
   = PrprInclude Parenthesis Text
   | PrprPragma Text
-  deriving (Eq, Show)    
+  deriving (Eq, Show)
 
 -- | C++ class
-data Class 
-  = Class 
+data Class
+  = Class
     { className :: Name,
       classMember :: [MemberDef]
     }
@@ -94,14 +95,14 @@ data Class
 instance Nameable Class where name = className
 
 -- | C++ class member definition
-data MemberDef 
+data MemberDef
   = MemberFunc
     { memberAccess :: AccessModifier,
       inlined      :: Bool,
       memberFunc   :: Function
     }  -- ^ A member function
-  | MemberVar 
-    { memberAccess :: AccessModifier, 
+  | MemberVar
+    { memberAccess :: AccessModifier,
       memberVar :: Var
     }-- ^ A member variable
   deriving (Eq, Show)
@@ -114,12 +115,12 @@ data AccessModifier = Private | Protected | Public
 
 
 -- | C++ function definition
-data Function 
-  = Function 
-    { funcName :: Name, 
+data Function
+  = Function
+    { funcName :: Name,
       funcType :: TypeRep,
       funcArgs :: [Var],
-      funcBody :: [Statement], 
+      funcBody :: [Statement],
       funcMemberInitializer :: [Expr]
     }
   deriving (Eq, Show)
@@ -136,18 +137,18 @@ function tr na = Function
   }
 
 -- | description C++ type
-data TypeRep 
+data TypeRep
   = UnitType     Dyn.TypeRep -- ^ Types for simple objects
   | PtrOf        TypeRep     -- ^ Pointer type
   | RefOf        TypeRep     -- ^ Reference type
   | Const        TypeRep     -- ^ Constant type
   | TemplateType Text [TypeRep] -- ^ A template type
   | QualifiedType [Qualifier] TypeRep -- ^ Qualified type
-  | ConstructorType                    
-    -- ^ the type of mu which is returned from constructor / destructor  
+  | ConstructorType
+    -- ^ the type of mu which is returned from constructor / destructor
   | UnknownType
     -- ^ the type of kuu that is detached from reincarnation
-  deriving (Eq, Show)    
+  deriving (Eq, Show)
 
 -- | [CUDA extension] qualifiers to use accelerator
 data Qualifier
@@ -156,7 +157,7 @@ data Qualifier
   | CudaHost
   | CudaShared
   | CudaConst
-  deriving (Eq, Show)                        
+  deriving (Eq, Show)
 
 -- | C++ Variable definition
 data Var = Var TypeRep Name deriving (Eq, Show)
@@ -167,7 +168,7 @@ data Expr
   = Imm Dyn.Dynamic -- ^ an immediate
   | VarExpr Var -- ^ an expression made of a variable
   | FuncCallUsr Name [Expr] -- ^ user function call
-  | FuncCallStd Text [Expr] -- ^ builtin function call 
+  | FuncCallStd Text [Expr] -- ^ builtin function call
   | CudaFuncCallUsr Name Expr Expr [Expr] -- ^ cuda function call with Grid topology
   | MemberAccess Expr Expr -- ^ access a member of an object
   | Op1Prefix Text Expr -- ^ prefix unary operator
@@ -202,7 +203,7 @@ instance Field.C Expr where
   (/) = Op2Infix "/"
   recip = Op1Prefix "1/" -- wow...
   fromRational' x = let
-    dx :: Double 
+    dx :: Double
     dx = fromRational' x
     in toDyn dx
 
@@ -220,9 +221,9 @@ toDyn :: (Dyn.Typeable a) => a -> Expr
 toDyn = Imm . Dyn.toDyn
 
 -- | parentheses used in C++
-data Parenthesis 
+data Parenthesis
   = Paren   -- ^ expression coupling, function call
-  | Bracket -- ^ array access 
+  | Bracket -- ^ array access
   | Brace   -- ^ create a code block
   | Chevron -- ^ tepmplate type
   | Chevron2 -- ^ not used
@@ -230,4 +231,4 @@ data Parenthesis
   | Quotation  -- ^ character
   | Quotation2 -- ^ string
   | SlashStar  -- ^ comment
-  deriving (Eq, Show)                    
+  deriving (Eq, Show)

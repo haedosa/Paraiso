@@ -1,0 +1,7 @@
+cradle:
+  cabal:
+    - path: "Paraiso/./"
+      component: "lib:Paraiso"
+
+    - path: "Paraiso/./"
+      component: "Paraiso:test:runtests"

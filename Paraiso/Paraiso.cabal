@@ -203,7 +203,8 @@ test-suite runtests
                      HUnit,
                      QuickCheck >= 2
   main-is: runtests.hs
-  other-modules:     Test.Paraiso.Annotation
+  other-modules:     Test.Paraiso.Adaptor
+                     Test.Paraiso.Annotation
                      Test.Paraiso.Claris
                      Test.Paraiso.QuickCheckItself
 

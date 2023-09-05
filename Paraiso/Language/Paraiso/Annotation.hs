@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# OPTIONS -Wall #-}
--- | 'Annotation' is a collection of 'Typeable's 
+-- | 'Annotation' is a collection of 'Typeable's
 -- with which you can annotate each OM node.
 
 module Language.Paraiso.Annotation
@@ -10,6 +10,7 @@ module Language.Paraiso.Annotation
 
 import           Control.Monad
 import           Data.Dynamic
+import           Data.Typeable (typeOf)
 import           Data.Maybe
 import           Prelude hiding (map)
 import qualified Prelude as P (map)
@@ -32,13 +33,13 @@ set x ys = toDyn x : filter ((/= typeOf x) . dynTypeRep) ys
 -- | set @x@ as the only member of the type in the collection,
 -- only if no annotation of the same type pre-exists.
 weakSet :: (Typeable a) => a -> Annotation -> Annotation
-weakSet x ys 
+weakSet x ys
   | any ((== typeOf x) . dynTypeRep) ys = ys
   | otherwise                           = toDyn x : ys
 
 
 
--- | Extract all annotations of type @a@ from 
+-- | Extract all annotations of type @a@ from
 -- the collection.
 toList :: (Typeable a) => Annotation -> [a]
 toList =  catMaybes . P.map fromDynamic

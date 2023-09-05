@@ -2,8 +2,8 @@
   PackageImports, RankNTypes, TypeSynonymInstances  #-}
 {-# OPTIONS -Wall #-}
 
--- | A monadic library to build dataflow graphs for OM. 
--- Builder is only for Graph vector gauge () . 
+-- | A monadic library to build dataflow graphs for OM.
+-- Builder is only for Graph vector gauge () .
 -- Graphs with other annotation types can be created by fmap.
 -- This module exports everything, for writing other Builder modules.
 
@@ -11,13 +11,13 @@ module Language.Paraiso.OM.Builder.Internal
     (
      Builder, BuilderState(..),
      B, BuilderOf,
-     buildKernel, initState, 
+     buildKernel, initState,
      modifyG, getG, freeNode, addNode, addNodeE, valueToNode, lookUpStatic,
      bind,
      load, store,
      reduce, broadcast,
      loadIndex,loadSize,
-     shift, 
+     shift,
      imm, mkOp1, mkOp2, cast, castTo,
      annotate, (<?>),
      withAnnotation
@@ -26,7 +26,7 @@ import qualified Algebra.Absolute as Absolute
 import qualified Algebra.Additive as Additive
 import qualified Algebra.Algebraic as Algebraic
 import qualified Algebra.Field as Field
-import qualified Algebra.IntegralDomain as IntegralDomain 
+import qualified Algebra.IntegralDomain as IntegralDomain
 import qualified Algebra.Lattice as Lattice
 import qualified Algebra.Ring as Ring
 import qualified Algebra.Transcendental as Transcendental
@@ -48,9 +48,10 @@ import           Language.Paraiso.OM.Value as Val
 import           Language.Paraiso.Prelude
 import qualified Prelude (Num(..), Fractional(..))
 import           NumericPrelude hiding ((++))
+import qualified Data.Typeable as Typeable
 
 -- | Create a 'Kernel' from a 'Builder' monad.
-buildKernel :: 
+buildKernel ::
               Setup v g a      -- ^The Orthotope machine setup.
            -> Name             -- ^The name of the kernel.
            -> Builder v g a () -- ^The builder monad.
@@ -61,13 +62,13 @@ buildKernel setup0 name0 builder0 = let
   in Kernel{kernelName = name0, dataflow = graph}
 
 
-data BuilderState vector gauge anot = BuilderState 
-    { setup   :: Setup vector gauge anot, 
+data BuilderState vector gauge anot = BuilderState
+    { setup   :: Setup vector gauge anot,
       context :: BuilderContext anot,
       target  :: Graph vector gauge anot} deriving (Show)
 
-data BuilderContext anot = 
-  BuilderContext 
+data BuilderContext anot =
+  BuilderContext
   { currentAnnotation :: anot } deriving (Show)
 
 -- | Create an initial state for 'Builder' monad from a OM 'Setup'.
@@ -79,13 +80,13 @@ initState s = BuilderState {
               }
 
 -- | The 'Builder' monad is used to build 'Kernel's.
-type Builder (vector :: * -> *) (gauge :: *) (anot :: *) (val :: *) = 
+type Builder (vector :: * -> *) (gauge :: *) (anot :: *) (val :: *) =
   State.State (BuilderState vector gauge anot) val
 
---  'Builder' needs to be an instance of 'Eq' to become an instance of  'Prelude.Num'  
+--  'Builder' needs to be an instance of 'Eq' to become an instance of  'Prelude.Num'
 instance Eq (Builder v g a ret) where
   _ == _ = undefined
---  'Builder' needs to be an instance of 'Show' to become an instance of  'Prelude.Num'  
+--  'Builder' needs to be an instance of 'Show' to become an instance of  'Prelude.Num'
 instance Show (Builder v g a ret) where
   show _ = "<<REDACTED>>"
 
@@ -93,7 +94,7 @@ type B ret = forall (v :: * -> *) (g :: *) (a :: *). Builder v g a ret
 type BuilderOf r c = forall (v :: * -> *) (g :: *) (a :: *).  Builder v g a (Value r c)
 
 -- | Modify the dataflow graph stored in the 'Builder'.
-modifyG ::           
+modifyG ::
   (Graph v g a -> Graph v g a) -- ^The graph modifying function.
   -> Builder v g a ()                             -- ^The state gets silently modified.
 modifyG f = State.modify (\bs -> bs{target = f.target $ bs})
@@ -109,7 +110,7 @@ freeNode = do
   return n
 
 -- | add a node to the graph.
-addNode :: 
+addNode ::
            [FGL.Node]             -- ^The list of dependent nodes. The order is recorded.
            -> Node v g a -- ^The new node to be added.
            -> Builder v g a FGL.Node
@@ -119,7 +120,7 @@ addNode froms new = do
   return n
 
 -- | add a node to the graph with an empty Annotation.
-addNodeE :: 
+addNodeE ::
            [FGL.Node]                             -- ^The list of dependent nodes. The order is recorded.
            -> (a -> Node v g a) -- ^The new node to be added, with Annotation missing.
            -> Builder v g a FGL.Node
@@ -128,10 +129,10 @@ addNodeE froms new' = do
   addNode froms (new' anot)
 
 
--- | convert a 'Value' to a 
+-- | convert a 'Value' to a
 valueToNode :: (TRealm r, Typeable c) => Value r c -> B FGL.Node
 valueToNode val = do
-  let 
+  let
       con = Val.content val
       type0 = toDyn val
   case val of
@@ -141,19 +142,19 @@ valueToNode val = do
              n1 <- addNodeE [n0] $ NValue type0
              return n1
 
--- | look up the 'Named' 'DynValue' with the correct name and type 
+-- | look up the 'Named' 'DynValue' with the correct name and type
 -- is included in the 'staticValues' of the 'BuilderState'
 lookUpStatic :: Named DynValue -> B StaticIdx
 lookUpStatic (Named name0 type0)= do
-  st <- State.get 
+  st <- State.get
   let
       vs :: V.Vector (Named DynValue)
       vs = staticValues $ setup st
       matches = V.filter (\(_,v)-> name v==name0) $ V.imap (\i v->(i,v)) vs
-      (ret, Named _ type1) = if V.length matches /= 1 
-                             then error (show (V.length matches)++" match found for '" ++ nameStr name0 ++ 
+      (ret, Named _ type1) = if V.length matches /= 1
+                             then error (show (V.length matches)++" match found for '" ++ nameStr name0 ++
                                          "' in " ++ show vs)
-                             else V.head matches  
+                             else V.head matches
   when (type0 /= type1) $ error ("type mismatch; expected: " ++ show type1 ++ "; " ++
                                 " actual: " ++ nameStr name0 ++ "::" ++ show type0)
   return $ StaticIdx ret
@@ -166,112 +167,112 @@ bind :: (Monad m, Functor m) => m a -> m (m a)
 bind = fmap return
 
 -- | Load from a static value.
-load :: (TRealm r, Typeable c) => 
+load :: (TRealm r, Typeable c) =>
         Named (Val.StaticValue r c) -- ^ the named static value to be loaded from.
      -> B (Value r c)               -- ^ The loaded 'Value' as a result.
 load (Named name0 (Val.StaticValue r0 c0))= do
-  let 
+  let
     type0 = mkDyn r0 c0
     nv = Named name0 type0
   idx <- lookUpStatic nv
   n0 <- addNodeE []   $ NInst  (Load idx)
-  n1 <- addNodeE [n0] $ NValue type0 
+  n1 <- addNodeE [n0] $ NValue type0
   return (FromNode r0 c0 n1)
 
 -- | Store to a static value.
-store :: (TRealm r, Typeable c) => 
+store :: (TRealm r, Typeable c) =>
          Named (Val.StaticValue r c) -- ^ the named static value to be stored on.
       -> Builder v g a (Value r c)   -- ^ The 'Value' to be stored.
       -> Builder v g a ()            -- ^ The result.
 store (Named name0 _) builder0 = do
   val0 <- builder0
-  let 
+  let
       type0 = toDyn val0
       nv = Named name0 type0
   idx <- lookUpStatic nv
   n0 <- valueToNode val0
-  _ <- addNodeE [n0] $ NInst (Store idx) 
+  _ <- addNodeE [n0] $ NInst (Store idx)
   return ()
 
 
--- | Reduce over a 'TArray' 'Value' 
+-- | Reduce over a 'TArray' 'Value'
 -- using the specified reduction 'Reduce.Operator'
 -- to make a 'TScalar' 'Value'
-reduce :: (Typeable c) => 
+reduce :: (Typeable c) =>
           Reduce.Operator               -- ^The reduction 'Reduce.Operator'.
        -> Builder v g a (Value TArray c)  -- ^The 'TArray' 'Value' to be reduced.
        -> Builder v g a (Value TScalar c) -- ^The 'TScalar' 'Value' that holds the reduction result.
-reduce op builder1 = do 
+reduce op builder1 = do
   val1 <- builder1
-  let 
+  let
       c1 = Val.content val1
       type2 = mkDyn TScalar c1
   n1 <- valueToNode val1
-  n2 <- addNodeE [n1] $ NInst (Reduce op) 
-  n3 <- addNodeE [n2] $ NValue type2 
+  n2 <- addNodeE [n1] $ NInst (Reduce op)
+  n3 <- addNodeE [n2] $ NValue type2
   return (FromNode TScalar c1 n3)
 
--- | Broadcast a 'TScalar' 'Value' 
--- to make it a 'TArray' 'Value'  
-broadcast :: (Typeable c) => 
+-- | Broadcast a 'TScalar' 'Value'
+-- to make it a 'TArray' 'Value'
+broadcast :: (Typeable c) =>
              Builder v g a (Value TScalar c) -- ^The 'TScalar' 'Value' to be broadcasted.
           -> Builder v g a (Value TArray c)  -- ^The 'TArray' 'Value', all of them containing the global value.
-broadcast builder1 = do 
+broadcast builder1 = do
   val1 <- builder1
-  let 
+  let
       c1 = Val.content val1
       type2 = mkDyn TArray c1
   n1 <- valueToNode val1
-  n2 <- addNodeE [n1] $ NInst Broadcast 
-  n3 <- addNodeE [n2] $ NValue type2 
+  n2 <- addNodeE [n1] $ NInst Broadcast
+  n3 <- addNodeE [n2] $ NValue type2
   return (FromNode TArray c1 n3)
 
 
 -- | Load the 'Axis' component of the mesh address, to a 'TArray' 'Value'.
-loadIndex :: (Typeable g) 
+loadIndex :: (Typeable g)
           => Axis v                         -- ^ The axis for which index is required
           -> Builder v g a (Value TArray g) -- ^ The 'TArray' 'Value' that contains the address as a result.
 loadIndex axis = do
   -- create a phantom object of type g
   c0 <- (return undefined) `asTypeOf` (fmap Val.content $ loadIndex axis)
-  let 
+  let
     type0 = mkDyn TArray c0
   n0 <- addNodeE []   $ NInst (LoadIndex axis)
-  n1 <- addNodeE [n0] $ NValue type0 
+  n1 <- addNodeE [n0] $ NValue type0
   return (FromNode TArray c0 n1)
 
 -- | Load the 'Axis' component of the mesh size, to a  'TScalar' 'Value'..
-loadSize :: (Typeable g) 
+loadSize :: (Typeable g)
          => Axis v                          -- ^ The axis for which the size is required
          -> Builder v g a (Value TScalar g) -- ^ The 'TScalar' 'Value' that contains the size of the mesh in that direction.
 loadSize axis = do
   -- create a phantom object of type g
   c0 <- (return undefined) `asTypeOf` (fmap Val.content $ loadSize axis)
-  let 
+  let
     type0 = mkDyn TScalar c0
   n0 <- addNodeE []   $ NInst (LoadSize axis)
-  n1 <- addNodeE [n0] $ NValue type0 
+  n1 <- addNodeE [n0] $ NValue type0
   return (FromNode TScalar c0 n1)
 
 -- | Shift a 'TArray' 'Value' with a constant vector.
 shift :: (Typeable c)
-  => v g                            -- ^ The amount of shift  
+  => v g                            -- ^ The amount of shift
   -> Builder v g a (Value TArray c) -- ^ The 'TArray' Value to be shifted
   -> Builder v g a (Value TArray c) -- ^ The shifted 'TArray' 'Value' as a result.
 shift vec builder1 = do
   val1 <- builder1
-  let 
+  let
     type1 = toDyn val1
     c1 = Val.content val1
   n1 <- valueToNode val1
   n2 <- addNodeE [n1] $ NInst $ Shift vec
-  n3 <- addNodeE [n2] $ NValue type1 
+  n3 <- addNodeE [n2] $ NValue type1
   return (FromNode TArray c1 n3)
 
 
--- | Create an immediate 'Value' from a Haskell concrete value. 
+-- | Create an immediate 'Value' from a Haskell concrete value.
 -- 'TRealm' is type-inferred.
-imm :: (TRealm r, Typeable c) => 
+imm :: (TRealm r, Typeable c) =>
        c             -- ^A Haskell value of type @c@ to be stored.
     -> B (Value r c) -- ^'TArray' 'Value' with the @c@ stored.
 imm c0 = return (FromImm unitTRealm c0)
@@ -284,36 +285,36 @@ imm c0 = return (FromImm unitTRealm c0)
 
 
 -- | Make a unary operator
-mkOp1 :: (TRealm r, Typeable c) => 
+mkOp1 :: (TRealm r, Typeable c) =>
          A.Operator                -- ^The operator symbol
       -> (Builder v g a (Value r c)) -- ^Input
-      -> (Builder v g a (Value r c)) -- ^Output              
+      -> (Builder v g a (Value r c)) -- ^Output
 mkOp1 op builder1 = do
   v1 <- builder1
-  let 
+  let
       r1 = Val.realm v1
       c1 = Val.content v1
   n1 <- valueToNode v1
-  n0 <-  addNodeE [n1] $ NInst (Arith op) 
-  n01 <- addNodeE [n0] $ NValue (toDyn v1) 
+  n0 <-  addNodeE [n1] $ NInst (Arith op)
+  n01 <- addNodeE [n0] $ NValue (toDyn v1)
   return $ FromNode r1 c1 n01
 
 -- | Make a binary operator
-mkOp2 :: (TRealm r, Typeable c) => 
-         A.Operator                -- ^The operator symbol 
-      -> (Builder v g a (Value r c)) -- ^Input 1              
-      -> (Builder v g a (Value r c)) -- ^Input 2               
-      -> (Builder v g a (Value r c)) -- ^Output              
+mkOp2 :: (TRealm r, Typeable c) =>
+         A.Operator                -- ^The operator symbol
+      -> (Builder v g a (Value r c)) -- ^Input 1
+      -> (Builder v g a (Value r c)) -- ^Input 2
+      -> (Builder v g a (Value r c)) -- ^Output
 mkOp2 op builder1 builder2 = do
   v1 <- builder1
   v2 <- builder2
-  let 
+  let
       r1 = Val.realm v1
       c1 = Val.content v1
   n1 <- valueToNode v1
   n2 <- valueToNode v2
   n0 <-  addNodeE [n1, n2] $ NInst (Arith op)
-  n01 <- addNodeE [n0] $ NValue (toDyn v1) 
+  n01 <- addNodeE [n0] $ NValue (toDyn v1)
   return $ FromNode r1 c1 n01
 
 
@@ -356,7 +357,7 @@ instance (TRealm r, Typeable c, IntegralDomain.C c) => IntegralDomain.C (Builder
   divMod = error "divmod is to be defined!"
 
 -- | you can convert GHC numeric immediates to 'Builder'.
-instance (TRealm r, Typeable c, Ring.C c) => Prelude.Num (Builder v g a (Value r c)) where  
+instance (TRealm r, Typeable c, Ring.C c) => Prelude.Num (Builder v g a (Value r c)) where
   (+) = (Additive.+)
   (*) = (Ring.*)
   (-) = (Additive.-)
@@ -372,13 +373,13 @@ instance (TRealm r, Typeable c, Field.C c) => Field.C (Builder v g a (Value r c)
   fromRational' = imm . fromRational'
 
 -- | you can convert GHC floating point immediates to 'Builder'.
-instance (TRealm r, Typeable c, Field.C c, Prelude.Fractional c) => Prelude.Fractional (Builder v g a (Value r c)) where  
+instance (TRealm r, Typeable c, Field.C c, Prelude.Fractional c) => Prelude.Fractional (Builder v g a (Value r c)) where
   (/) = (Field./)
   recip = Field.recip
   fromRational = imm . Prelude.fromRational
 
 -- | Builder is 'Boolean'. You can use 'true', 'false', 'not', '&&', '||'.
-instance (TRealm r) => Boolean (Builder v g a (Value r Bool)) where  
+instance (TRealm r) => Boolean (Builder v g a (Value r Bool)) where
   true  = imm True
   false = imm False
   not   = mkOp1 A.Not
@@ -393,7 +394,7 @@ instance (TRealm r, Typeable c, Algebraic.C c) => Algebraic.C (Builder v g a (Va
 -- | choose the larger or the smaller of the two.
 instance (TRealm r, Typeable c) => Lattice.C (Builder v g a (Value r c))
     where
-      up = mkOp2 A.Max  
+      up = mkOp2 A.Max
       dn = mkOp2 A.Min
 
 instance (TRealm r, Typeable c) => ZeroTestable.C (Builder v g a (Value r c))
@@ -405,8 +406,8 @@ instance (TRealm r, Typeable c, Ring.C c) => Absolute.C (Builder v g a (Value r 
       abs    = mkOp1 A.Abs
       signum = mkOp1 A.Signum
 
-instance (TRealm r, Typeable c,  Transcendental.C c) =>  
-    Transcendental.C (Builder v g a (Value r c)) where      
+instance (TRealm r, Typeable c,  Transcendental.C c) =>
+    Transcendental.C (Builder v g a (Value r c)) where
         pi = imm pi
         exp = mkOp1 A.Exp
         log = mkOp1 A.Log
@@ -423,12 +424,12 @@ cast :: (TRealm r, Typeable c1,Typeable c2) => (Builder v g a (Value r c1)) -> (
 cast builder1 = do
   c2 <- (return undefined) `asTypeOf` (fmap Val.content $ cast builder1)
   v1 <- builder1
-  let 
+  let
       r1 = Val.realm v1
       c1 = Val.content v1
   n1 <- valueToNode v1
-  n0 <-  addNodeE [n1] $ NInst (Arith $ A.Cast $ Dynamic.typeOf c2) 
-  n01 <- addNodeE [n0] $ NValue (toDyn v1{Val.content = c2}) 
+  n0 <-  addNodeE [n1] $ NInst (Arith $ A.Cast $ Typeable.typeOf c2)
+  n01 <- addNodeE [n0] $ NValue (toDyn v1{Val.content = c2})
   return $ FromNode r1 c2 n01
 
 
@@ -437,12 +438,12 @@ cast builder1 = do
 castTo :: (TRealm r, Typeable c1,Typeable c2) => c2 -> (Builder v g a (Value r c1)) -> (Builder v g a (Value r c2))
 castTo c2 builder1 = do
   v1 <- builder1
-  let 
+  let
       r1 = Val.realm v1
       c1 = Val.content v1
   n1 <- valueToNode v1
-  n0 <-  addNodeE [n1] $ NInst (Arith $ A.Cast $ Dynamic.typeOf c2) 
-  n01 <- addNodeE [n0] $ NValue (toDyn v1{Val.content = c2}) 
+  n0 <-  addNodeE [n1] $ NInst (Arith $ A.Cast $ Typeable.typeOf c2)
+  n01 <- addNodeE [n0] $ NValue (toDyn v1{Val.content = c2})
   return $ FromNode r1 c2 n01
 
 
@@ -461,25 +462,24 @@ withAnnotation f builder1 = do
   return ret
 
 
--- | Execute the builder, and annotate the very result with the givin function. 
+-- | Execute the builder, and annotate the very result with the givin function.
 annotate :: (TRealm r, Typeable c) => (a -> a) -> Builder v g a (Value r c) ->  Builder v g a (Value r c)
 annotate f builder1 = do
   v1 <- builder1
   n1 <- valueToNode v1
-  let 
+  let
     r1 = Val.realm v1
     c1 = Val.content v1
     annotator con@(ins, n2, node2, outs)
       | n1 /= n2  = con
       | otherwise = (ins, n2, fmap f node2, outs)
   stat0 <- State.get
-  State.put $ stat0 {    
+  State.put $ stat0 {
     target = FGL.gmap annotator (target stat0)
     }
-  return $ FromNode r1 c1 n1 
+  return $ FromNode r1 c1 n1
 
 -- | (<?>) = annotate
 infixr 0 <?>
 (<?>) :: (TRealm r, Typeable c) => (a -> a) -> Builder v g a (Value r c) ->  Builder v g a (Value r c)
 (<?>) = annotate
-

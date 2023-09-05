@@ -1,14 +1,14 @@
 {-# LANGUAGE CPP, NoImplicitPrelude #-}
 {-# OPTIONS -Wall #-}
-module Language.Paraiso.OM.Arithmetic 
+module Language.Paraiso.OM.Arithmetic
     (
      Arity(..), arityI, arityO,
      Operator(..)
     ) where
 
-import qualified Data.Dynamic as Dynamic
 import           NumericPrelude hiding (Ordering(..), Eq(..), Ord(..))
 import qualified NumericPrelude as P
+import qualified Data.Typeable as Typeable
 
 class Arity a where
   arity :: a -> (Int, Int)
@@ -16,16 +16,16 @@ class Arity a where
 arityI, arityO :: (Arity a) => a -> Int
 arityI = fst.arity
 arityO = snd.arity
-  
-data Operator = 
+
+data Operator =
   Identity |
   Add |
   Sub |
   Neg |
-  Mul | 
+  Mul |
   Div |
-  --DivRm |   TODO 
-  --DivRp |  
+  --DivRm |   TODO
+  --DivRp |
   Mod |
   DivMod |
   Inv |
@@ -60,9 +60,9 @@ data Operator =
   Asin |
   Acos |
   Atan |
-  Atan2 |  
+  Atan2 |
   Sincos |
-  Cast Dynamic.TypeRep
+  Cast Typeable.TypeRep
   deriving (P.Eq, P.Ord, P.Show)
 
 instance Arity Operator where
@@ -74,7 +74,7 @@ instance Arity Operator where
     Mul -> (2,1)
     Div -> (2,1)
     Mod -> (2,1)
-    DivMod -> (2,2)    
+    DivMod -> (2,2)
     Inv -> (1,1)
     Not -> (1,1)
     And -> (2,1)

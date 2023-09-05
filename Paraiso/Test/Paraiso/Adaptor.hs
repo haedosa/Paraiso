@@ -14,10 +14,5 @@ testResult :: TestName -> IO Result -> Test
 testResult testName qTest = testCase testName $ do
   ret <- qTest
   case ret of
-    Success _ _ _ -> return ()
+    Success _ _ _ _ _ _ -> return ()
     _ -> assertFailure $ output ret
-
-
-
-
-
