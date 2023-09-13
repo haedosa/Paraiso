@@ -28,5 +28,10 @@ in haskellPackages.shellFor {
       ghcid-bin
       ghcid-test-paraiso
       cabal-install
+      cudatoolkit
     ];
+    LD_LIBRARY_PATH = lib.makeLibraryPath [
+      linuxPackages.nvidia_x11
+    ];
+    CUDA_PATH="${cudatoolkit}";
 }

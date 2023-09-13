@@ -2,6 +2,9 @@ inputs:
 
 final: prev: with final; {
 
+  cudaPackages = cudaPackages_11_8;
+  cudatoolkit = cudaPackages_11_8.cudatoolkit;
+
   haskell = let
     packageOverrides = lib.composeManyExtensions [
       (prev.haskell.packageOverrides or (_: _: {}))
@@ -14,11 +17,7 @@ final: prev: with final; {
           addCudaEnv
             (appendNativeBuildInputs
               (hfinal.callCabal2nix name path arg) [ libxml2 cudatoolkit ]);
-        addCudaEnv = hpkg:
-        let
-          cudaPackages = cudaPackages_11_8;
-          cudatoolkit = cudaPackages.cudatoolkit;
-        in overrideCabal hpkg (drv: {
+        addCudaEnv = hpkg: overrideCabal hpkg (drv: {
           extraLibraries = (drv.extraLibraries or []) ++ [linuxPackages.nvidia_x11];
           configureFlags = (drv.configureFlags or []) ++ [
             "--extra-lib-dirs=${cudatoolkit.lib}/lib"
